@@ -32,6 +32,7 @@ def LoadComplaintDf(UploadedFile, LocalPath):
 
     return ComplaintDf
 
+
 st.title("NYPD Complaints (Sample) — EDA Dashboard")
 
 UploadedFile = st.file_uploader("Upload CSV (optional)", type=["csv"])
@@ -43,13 +44,22 @@ if UploadedFile is None and LocalPath.strip() == "":
 ComplaintDf = LoadComplaintDf(UploadedFile, LocalPath)
 
 LawFilterDefault = ["FELONY", "MISDEMEANOR"] if "LAW_CAT_CD" in ComplaintDf.columns else []
-BoroughDefault = sorted(ComplaintDf["BORO_NM"].dropna().unique().tolist()) if "BORO_NM" in ComplaintDf.columns else []
+BoroughDefault = (
+    sorted(ComplaintDf["BORO_NM"].dropna().unique().tolist())
+    if "BORO_NM" in ComplaintDf.columns
+    else []
+)
 
 with st.sidebar:
     st.header("Filters")
+
     if "LAW_CAT_CD" in ComplaintDf.columns:
         LawCats = sorted(ComplaintDf["LAW_CAT_CD"].dropna().unique().tolist())
-        LawFilter = st.multiselect("LAW_CAT_CD", LawCats, default=[c for c in LawFilterDefault if c in LawCats])
+        LawFilter = st.multiselect(
+            "LAW_CAT_CD",
+            LawCats,
+            default=[c for c in LawFilterDefault if c in LawCats],
+        )
     else:
         LawFilter = []
 
@@ -69,6 +79,36 @@ if "LAW_CAT_CD" in FilteredDf.columns and len(LawFilter) > 0:
 if "BORO_NM" in FilteredDf.columns and len(BoroughFilter) > 0:
     FilteredDf = FilteredDf[FilteredDf["BORO_NM"].isin(BoroughFilter)]
 
+
+# ---------------- KPI METRICS ----------------
+st.subheader("Quick KPIs")
+
+TotalComplaints = int(len(FilteredDf))
+
+Felonies = 0
+Misdemeanors = 0
+FelonyShare = np.nan
+
+if "LAW_CAT_CD" in FilteredDf.columns:
+    Felonies = int((FilteredDf["LAW_CAT_CD"] == "FELONY").sum())
+    Misdemeanors = int((FilteredDf["LAW_CAT_CD"] == "MISDEMEANOR").sum())
+    Den = Felonies + Misdemeanors
+    FelonyShare = (Felonies / Den) if Den > 0 else np.nan
+
+TopBoro = "N/A"
+if "BORO_NM" in FilteredDf.columns and TotalComplaints > 0:
+    TopBoro = FilteredDf["BORO_NM"].value_counts().index[0]
+
+C1, C2, C3, C4 = st.columns(4)
+C1.metric("Total complaints", f"{TotalComplaints:,}")
+C2.metric("Felonies", f"{Felonies:,}")
+C3.metric("Misdemeanors", f"{Misdemeanors:,}")
+C4.metric("Felony share", f"{FelonyShare:.1%}" if pd.notna(FelonyShare) else "N/A")
+
+st.caption(f"Top borough (by volume): {TopBoro}")
+# --------------------------------------------
+
+
 Tab1, Tab2, Tab3 = st.tabs(["Counts & Trends", "Composition", "Map"])
 
 with Tab1:
@@ -83,8 +123,12 @@ with Tab1:
                 .rename_axis("Borough")
                 .reset_index(name="ComplaintCount")
             )
-            FigBorough = px.bar(BoroughTotalsDf, x="Borough", y="ComplaintCount",
-                                title="Total NYPD Complaints by Borough")
+            FigBorough = px.bar(
+                BoroughTotalsDf,
+                x="Borough",
+                y="ComplaintCount",
+                title="Total NYPD Complaints by Borough",
+            )
             st.plotly_chart(FigBorough, use_container_width=True)
 
     with ColB:
@@ -96,8 +140,14 @@ with Tab1:
                 .reset_index(name="ComplaintCount")
                 .sort_values("Year")
             )
-            FigYearLaw = px.line(YearLawDf, x="Year", y="ComplaintCount", color="LAW_CAT_CD",
-                                 markers=True, title="Yearly Complaint Counts by Law Category")
+            FigYearLaw = px.line(
+                YearLawDf,
+                x="Year",
+                y="ComplaintCount",
+                color="LAW_CAT_CD",
+                markers=True,
+                title="Yearly Complaint Counts by Law Category",
+            )
             st.plotly_chart(FigYearLaw, use_container_width=True)
 
     if {"Year", "BORO_NM", "LAW_CAT_CD"}.issubset(FilteredDf.columns):
@@ -116,7 +166,7 @@ with Tab1:
             facet_col="BORO_NM",
             facet_col_wrap=3,
             markers=True,
-            title="Yearly Complaint Counts by Borough and Law Category"
+            title="Yearly Complaint Counts by Borough and Law Category",
         )
         st.plotly_chart(FigFacet, use_container_width=True)
 
@@ -131,7 +181,9 @@ with Tab2:
                 .size()
                 .reset_index(name="Count")
             )
-            FelonyDf = HeatBaseDf[HeatBaseDf["LAW_CAT_CD"] == "FELONY"][["BORO_NM", "Year", "Count"]].rename(columns={"Count": "FelonyCount"})
+            FelonyDf = HeatBaseDf[HeatBaseDf["LAW_CAT_CD"] == "FELONY"][
+                ["BORO_NM", "Year", "Count"]
+            ].rename(columns={"Count": "FelonyCount"})
             TotalDf = HeatBaseDf.groupby(["BORO_NM", "Year"])["Count"].sum().reset_index(name="TotalCount")
             FelonyShareDf = FelonyDf.merge(TotalDf, on=["BORO_NM", "Year"], how="right").fillna({"FelonyCount": 0})
             FelonyShareDf["FelonyShare"] = FelonyShareDf["FelonyCount"] / FelonyShareDf["TotalCount"].replace(0, np.nan)
@@ -145,6 +197,7 @@ with Tab2:
             else:
                 HeatPivotDf = FelonyShareDf.pivot(index="BORO_NM", columns="Year", values="FelonyShare")
                 FigHeat = px.imshow(HeatPivotDf, aspect="auto", title="Felony Share by Borough and Year")
+
             st.plotly_chart(FigHeat, use_container_width=True)
 
     with ColD:
@@ -156,9 +209,15 @@ with Tab2:
                 .reset_index(name="ComplaintCount")
                 .sort_values("MonthNum")
             )
-            FigMonth = px.line(MonthDf, x="MonthName", y="ComplaintCount", color="LAW_CAT_CD",
-                               markers=True, category_orders={"MonthName": MonthDf["MonthName"].tolist()},
-                               title="Monthly Pattern of NYPD Complaints by Law Category")
+            FigMonth = px.line(
+                MonthDf,
+                x="MonthName",
+                y="ComplaintCount",
+                color="LAW_CAT_CD",
+                markers=True,
+                category_orders={"MonthName": MonthDf["MonthName"].tolist()},
+                title="Monthly Pattern of NYPD Complaints by Law Category",
+            )
             st.plotly_chart(FigMonth, use_container_width=True)
 
     ColE, ColF = st.columns(2)
@@ -172,9 +231,15 @@ with Tab2:
                 .size()
                 .reset_index(name="ComplaintCount")
             )
-            FigDay = px.line(DayDf, x="DayOfWeek", y="ComplaintCount", color="LAW_CAT_CD",
-                             markers=True, category_orders={"DayOfWeek": DayOrder},
-                             title="Day-of-Week Pattern by Law Category")
+            FigDay = px.line(
+                DayDf,
+                x="DayOfWeek",
+                y="ComplaintCount",
+                color="LAW_CAT_CD",
+                markers=True,
+                category_orders={"DayOfWeek": DayOrder},
+                title="Day-of-Week Pattern by Law Category",
+            )
             st.plotly_chart(FigDay, use_container_width=True)
 
     with ColF:
@@ -186,8 +251,14 @@ with Tab2:
                 .reset_index(name="ComplaintCount")
                 .sort_values("Hour")
             )
-            FigHour = px.line(HourDf, x="Hour", y="ComplaintCount", color="LAW_CAT_CD",
-                              markers=True, title="Hourly Pattern by Law Category")
+            FigHour = px.line(
+                HourDf,
+                x="Hour",
+                y="ComplaintCount",
+                color="LAW_CAT_CD",
+                markers=True,
+                title="Hourly Pattern by Law Category",
+            )
             st.plotly_chart(FigHour, use_container_width=True)
 
     if {"OFNS_DESC", "LAW_CAT_CD"}.issubset(FilteredDf.columns):
@@ -228,7 +299,7 @@ with Tab2:
             orientation="h",
             color="DominantLawCat",
             color_discrete_map={"MISDEMEANOR": "red", "FELONY": "blue"},
-            title="Top Offenses (colored by dominant law category)"
+            title="Top Offenses (colored by dominant law category)",
         )
         FigTopOffenses.update_yaxes(autorange="reversed")
         st.plotly_chart(FigTopOffenses, use_container_width=True)
@@ -245,7 +316,7 @@ with Tab3:
             lon="Longitude",
             zoom=9,
             opacity=0.4,
-            title="Complaint Locations (sampled)"
+            title="Complaint Locations (sampled)",
         )
         FigMap.update_layout(mapbox_style="open-street-map")
         st.plotly_chart(FigMap, use_container_width=True)
