@@ -28,6 +28,13 @@ def LoadComplaintDf(UploadedFile, LocalPath):
         ComplaintDf = ComplaintDf[ComplaintDf["Year"].between(2005, CurrentYear)]
 
     if "BORO_NM" in ComplaintDf.columns:
+        Boro = ComplaintDf["BORO_NM"].astype("string").str.strip()
+        Boro = Boro.str.upper()
+        Boro = Boro.replace(
+            ["", "NULL", "(NULL)", "NONE", "NAN", "<NA>"],
+            pd.NA,
+        )
+        ComplaintDf["BORO_NM"] = Boro
         ComplaintDf = ComplaintDf.dropna(subset=["BORO_NM"])
 
     return ComplaintDf
@@ -79,8 +86,6 @@ if "LAW_CAT_CD" in FilteredDf.columns and len(LawFilter) > 0:
 if "BORO_NM" in FilteredDf.columns and len(BoroughFilter) > 0:
     FilteredDf = FilteredDf[FilteredDf["BORO_NM"].isin(BoroughFilter)]
 
-
-# ---------------- KPI METRICS ----------------
 st.subheader("Quick KPIs")
 
 TotalComplaints = int(len(FilteredDf))
@@ -106,8 +111,6 @@ C3.metric("Misdemeanors", f"{Misdemeanors:,}")
 C4.metric("Felony share", f"{FelonyShare:.1%}" if pd.notna(FelonyShare) else "N/A")
 
 st.caption(f"Top borough (by volume): {TopBoro}")
-# --------------------------------------------
-
 
 Tab1, Tab2, Tab3 = st.tabs(["Counts & Trends", "Composition", "Map"])
 
