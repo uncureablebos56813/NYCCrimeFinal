@@ -76,6 +76,26 @@ with st.sidebar:
     else:
         BoroughFilter = []
 
+    YearRange = None
+    IncludeMissingYear = False
+    if "Year" in ComplaintDf.columns:
+        YearSeries = ComplaintDf["Year"].dropna()
+        if not YearSeries.empty:
+            YearMin = int(YearSeries.min())
+            YearMax = int(YearSeries.max())
+            IncludeMissingYear = st.checkbox("Include missing Year", value=False)
+            YearRange = st.slider("Year range", YearMin, YearMax, (YearMin, YearMax), step=1)
+
+    OffenseQuery = ""
+    if "OFNS_DESC" in ComplaintDf.columns:
+        OffenseQuery = st.text_input(
+        "Offense contains (optional)",
+        value="",
+        placeholder="e.g., ASSAULT"
+    ).strip()
+    st.caption("Filters to rows where OFNS_DESC contains this text (case-insensitive). Leave blank for all.")
+
+
     MaxRows = st.slider("Max rows for map (sampling)", 5_000, 200_000, 50_000, step=5_000)
 
 FilteredDf = ComplaintDf.copy()
@@ -85,6 +105,16 @@ if "LAW_CAT_CD" in FilteredDf.columns and len(LawFilter) > 0:
 
 if "BORO_NM" in FilteredDf.columns and len(BoroughFilter) > 0:
     FilteredDf = FilteredDf[FilteredDf["BORO_NM"].isin(BoroughFilter)]
+
+if "Year" in FilteredDf.columns and YearRange is not None:
+    if not IncludeMissingYear:
+        FilteredDf = FilteredDf.dropna(subset=["Year"])
+    FilteredDf = FilteredDf[FilteredDf["Year"].between(YearRange[0], YearRange[1])]
+
+if OffenseQuery and "OFNS_DESC" in FilteredDf.columns:
+    FilteredDf = FilteredDf[FilteredDf["OFNS_DESC"].astype("string").str.contains(OffenseQuery, case=False, na=False)]
+
+st.sidebar.metric("Rows after filters", f"{len(FilteredDf):,}")
 
 st.subheader("Quick KPIs")
 
@@ -111,6 +141,15 @@ C3.metric("Misdemeanors", f"{Misdemeanors:,}")
 C4.metric("Felony share", f"{FelonyShare:.1%}" if pd.notna(FelonyShare) else "N/A")
 
 st.caption(f"Top borough (by volume): {TopBoro}")
+
+with st.expander("View / download filtered data"):
+    st.write(f"Rows after filters: {len(FilteredDf):,}")
+    st.dataframe(FilteredDf.head(200), use_container_width=True)
+    DownloadDf = FilteredDf
+    if len(DownloadDf) > 200_000:
+        DownloadDf = DownloadDf.sample(200_000, random_state=42)
+    CsvBytes = DownloadDf.to_csv(index=False).encode("utf-8")
+    st.download_button("Download filtered CSV (max 200k rows)", CsvBytes, "filtered_complaints.csv", "text/csv")
 
 Tab1, Tab2, Tab3 = st.tabs(["Counts & Trends", "Composition", "Map"])
 
@@ -212,13 +251,18 @@ with Tab2:
                 .reset_index(name="ComplaintCount")
                 .sort_values("MonthNum")
             )
+            MonthOrder = (
+                MonthDf.drop_duplicates("MonthNum")
+                .sort_values("MonthNum")["MonthName"]
+                .tolist()
+            )
             FigMonth = px.line(
                 MonthDf,
                 x="MonthName",
                 y="ComplaintCount",
                 color="LAW_CAT_CD",
                 markers=True,
-                category_orders={"MonthName": MonthDf["MonthName"].tolist()},
+                category_orders={"MonthName": MonthOrder},
                 title="Monthly Pattern of NYPD Complaints by Law Category",
             )
             st.plotly_chart(FigMonth, use_container_width=True)
@@ -230,9 +274,11 @@ with Tab2:
             DayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             DayDf = (
                 FilteredDf.dropna(subset=["DayOfWeek", "LAW_CAT_CD"])
+                .assign(DayOfWeek=lambda d: pd.Categorical(d["DayOfWeek"], categories=DayOrder, ordered=True))
                 .groupby(["DayOfWeek", "LAW_CAT_CD"])
                 .size()
                 .reset_index(name="ComplaintCount")
+                .sort_values("DayOfWeek")
             )
             FigDay = px.line(
                 DayDf,
